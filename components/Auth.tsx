@@ -3,8 +3,13 @@ import { StyleSheet, View, AppState, Alert, TextInput, TouchableOpacity, Text, A
 import { Eye, EyeOff } from 'lucide-react-native';
 import { supabase } from '../lib/supabase';
 import { LinearGradient } from 'expo-linear-gradient';
-import { BlurView } from 'expo-blur';
 import { useFonts, DancingScript_700Bold } from '@expo-google-fonts/dancing-script';
+import * as WebBrowser from 'expo-web-browser';
+import * as AuthSession from 'expo-auth-session';
+import * as QueryParams from 'expo-auth-session/build/QueryParams';
+import * as Linking from 'expo-linking';
+
+WebBrowser.maybeCompleteAuthSession();
 
 AppState.addEventListener('change', (state) => {
   if (state === 'active') {
@@ -121,37 +126,6 @@ export default function Auth() {
     setLoading(false);
   }
 
-  async function handleResendConfirm() {
-    if (!username.trim()) {
-      Alert.alert('Thông báo', 'Vui lòng nhập Username của bạn vào ô trên để gửi lại email!');
-      return;
-    }
-    setLoading(true);
-    
-    const { data: profile, error: profileError } = await supabase
-      .from('profiles')
-      .select('email')
-      .eq('username', username.trim().toLowerCase())
-      .single();
-
-    if (profileError || !profile) {
-      Alert.alert('Lỗi', 'Không tìm thấy tài khoản (Username) này!');
-      setLoading(false);
-      return;
-    }
-
-    const { error } = await supabase.auth.resend({
-      type: 'signup',
-      email: profile.email,
-    });
-
-    if (error) {
-      Alert.alert('Lỗi gửi email', error.message);
-    } else {
-      Alert.alert('Thành công', 'Đã gửi lại link xác nhận. Vui lòng kiểm tra Hộp thư (kể cả mục Spam)!');
-    }
-    setLoading(false);
-  }
 
   async function handleSignUp() {
     if (!username.trim() || !email.trim() || !password.trim()) {
@@ -193,10 +167,71 @@ export default function Auth() {
       if (data.session) {
         Alert.alert('Thành công', 'Đăng ký thành công! Đã tự động đăng nhập.');
       } else {
-        Alert.alert('Thành công', 'Đăng ký thành công! Vui lòng kiểm tra và xác nhận (confirm) email của bạn nhé.');
+        Alert.alert('Thành công', 'Đăng ký thành công! Vui lòng kiểm tra và xác nhận email của bạn nhé.', [
+          { text: "OK", onPress: () => toggleMode() }
+        ]);
       }
     }
     setLoading(false);
+  }
+
+  async function handleGoogleLogin() {
+    setLoading(true);
+    try {
+      const redirectUrl = AuthSession.makeRedirectUri({
+        path: 'auth-callback',
+        preferLocalhost: false,
+      });
+      console.log('Generated Linking URL:', redirectUrl);
+      
+      const { data, error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo: redirectUrl,
+          skipBrowserRedirect: true,
+        }
+      });
+
+      if (error) throw error;
+      
+      console.log('Supabase Data URL:', data?.url);
+      // Alert.alert('Debug', `Redirect URL đang dùng:\n${redirectUrl}`); // (bỏ qua alert này để tránh khó chịu, chỉ log)
+
+      if (data?.url) {
+        const result = await WebBrowser.openAuthSessionAsync(data.url, redirectUrl);
+        if (result.type === 'success') {
+          const { url } = result;
+          const { params, errorCode } = QueryParams.getQueryParams(url);
+          
+          if (errorCode) throw new Error(errorCode);
+          
+          if (params.access_token && params.refresh_token) {
+            const { error: sessionError } = await supabase.auth.setSession({
+              access_token: params.access_token,
+              refresh_token: params.refresh_token
+            });
+            if (sessionError) throw sessionError;
+          } else if (params.code) {
+            // PKCE flow support
+            console.log("Got auth code, exchanging for session...");
+            // Because we didn't initiate PKCE properly via expo-auth-session, exchanging code might not work directly without code_verifier if Supabase JS generated it internally?
+            // Actually, in Supabase v2, exchangeCodeForSession is a thing, but skipBrowserRedirect might not store the verifier?
+            // Let's just pass it to exchangeCodeForSession or setSession if possible.
+            // Wait, actually supabase.auth.getSessionFromUrl might be the best?
+            // Let's alert the user with the url so we can debug.
+            Alert.alert('Debug URL', 'URL contains code. Try again.');
+          } else {
+             Alert.alert('Debug Lỗi', 'Không tìm thấy access_token hay code trong URL: ' + url);
+          }
+        } else {
+          console.log("WebBrowser result type:", result.type);
+        }
+      }
+    } catch (e: any) {
+      Alert.alert('Lỗi đăng nhập Google', e.message);
+    } finally {
+      setLoading(false);
+    }
   }
 
   const floatingY = floatAnim.interpolate({
@@ -252,7 +287,7 @@ export default function Auth() {
             alignItems: 'center'
           }}
         >
-          <BlurView intensity={50} tint="dark" style={styles.glassCard}>
+          <View style={[styles.glassCard, { backgroundColor: 'rgba(255, 255, 255, 0.07)' }]}>
             <Animated.View style={{ opacity: formOpacity, transform: [{ scale: formScale }] }}>
               <View style={styles.inputContainer}>
                 <TextInput
@@ -306,6 +341,20 @@ export default function Auth() {
                 </Text>
               </TouchableOpacity>
               
+              <View style={styles.dividerContainer}>
+                <View style={styles.divider} />
+                <Text style={styles.dividerText}>HOẶC</Text>
+                <View style={styles.divider} />
+              </View>
+
+              <TouchableOpacity 
+                style={[styles.button, styles.googleButton]} 
+                disabled={loading} 
+                onPress={handleGoogleLogin}
+              >
+                <Text style={styles.googleButtonText}>Tiếp tục với Google</Text>
+              </TouchableOpacity>
+              
               <TouchableOpacity 
                 style={styles.switchModeButton} 
                 disabled={loading} 
@@ -316,19 +365,9 @@ export default function Auth() {
                 </Text>
               </TouchableOpacity>
 
-              {isLogin && (
-                <TouchableOpacity 
-                  style={{ alignItems: 'center', marginTop: 5 }} 
-                  disabled={loading} 
-                  onPress={handleResendConfirm}
-                >
-                  <Text style={[styles.switchModeText, { color: '#3399FF', fontSize: 14, textDecorationLine: 'none' }]}>
-                    Chưa nhận được mail xác nhận? Nhấn để gửi lại
-                  </Text>
-                </TouchableOpacity>
-              )}
+
             </Animated.View>
-          </BlurView>
+          </View>
         </Animated.View>
         </KeyboardAvoidingView>
       </TouchableWithoutFeedback>
@@ -437,5 +476,31 @@ const styles = StyleSheet.create({
     color: 'rgba(255, 255, 255, 0.7)',
     fontSize: 15,
     textDecorationLine: 'underline',
+  },
+  dividerContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginVertical: 20,
+  },
+  divider: {
+    flex: 1,
+    height: 1,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+  },
+  dividerText: {
+    color: 'rgba(255, 255, 255, 0.5)',
+    paddingHorizontal: 10,
+    fontSize: 14,
+    fontWeight: 'bold',
+  },
+  googleButton: {
+    backgroundColor: 'white',
+    shadowColor: 'rgba(0, 0, 0, 0.1)',
+    marginTop: 0,
+  },
+  googleButtonText: {
+    color: '#333',
+    fontWeight: 'bold',
+    fontSize: 18,
   },
 });

@@ -8,7 +8,14 @@ security definer set search_path = ''
 as $$
 begin
   insert into public.profiles (id, username, email)
-  values (new.id, new.raw_user_meta_data->>'username', new.email);
+  values (
+    new.id, 
+    coalesce(
+      new.raw_user_meta_data->>'username', 
+      split_part(new.email, '@', 1) || '_' || substr(md5(random()::text), 1, 6)
+    ), 
+    new.email
+  );
   return new;
 end;
 $$;

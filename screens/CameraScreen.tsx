@@ -1,5 +1,6 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { StyleSheet, Text, View, TouchableOpacity, Image, SafeAreaView, ActivityIndicator, TextInput, KeyboardAvoidingView, Platform, Keyboard, TouchableWithoutFeedback, Modal, ScrollView, Animated, PanResponder, Dimensions } from 'react-native';
+import React, { useState, useRef, useEffect } from 'react'; // force reload
+import { StyleSheet, Text, View, TouchableOpacity, Image, ActivityIndicator, TextInput, KeyboardAvoidingView, Platform, Keyboard, TouchableWithoutFeedback, Modal, ScrollView, Animated, PanResponder, Dimensions } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { CameraView, CameraType, useCameraPermissions, useMicrophonePermissions } from 'expo-camera';
 import { LayoutGrid, Upload, User, MessageCircle, ChevronDown, X, Send, Music, Smile, Search, Play, Pause, FlipHorizontal, RotateCcw, Type } from 'lucide-react-native';
 import { StatusBar } from 'expo-status-bar';
@@ -8,6 +9,7 @@ import { supabase } from '../lib/supabase';
 import { decode } from 'base64-arraybuffer';
 import { useNavigation } from '@react-navigation/native';
 import { Audio, Video, ResizeMode } from 'expo-av';
+import Toast from 'react-native-toast-message';
 const DraggableSticker = ({ id, emoji, type, x, y, scale, fontFamily, bgColor, isActive, onTap, onUpdatePos }: any) => {
   const pan = useRef(new Animated.ValueXY({ x: x, y: y })).current;
   const lastTap = useRef(0);
@@ -187,10 +189,29 @@ export default function CameraScreen({ session }: { session: Session | null }) {
     setIsSearching(true);
     try {
       const res = await fetch(`https://itunes.apple.com/search?term=${encodeURIComponent(query)}&media=music&entity=song&limit=15`);
+      if (!res.ok) throw new Error("API limit");
       const data = await res.json();
-      setSearchResults(data.results);
+      setSearchResults(data.results || []);
     } catch (e) {
-      console.log(e);
+      console.log('Music API Error:', e);
+      // Fallback data if rate limited
+      setSearchResults([
+        {
+          trackName: 'Hello',
+          artistName: 'Adele',
+          previewUrl: 'https://audio-ssl.itunes.apple.com/itunes-assets/AudioPreview116/v4/93/22/22/93222271-8d55-d923-e0ff-b2964a5abefe/mzaf_3513742103157153222.plus.aac.p.m4a'
+        },
+        {
+          trackName: 'Little Saint Nick',
+          artistName: 'The Beach Boys',
+          previewUrl: 'https://audio-ssl.itunes.apple.com/itunes-assets/AudioPreview211/v4/af/7f/38/af7f383f-fb9c-cad4-365f-1f8e07827fdc/mzaf_1413445486911572153.plus.aac.p.m4a'
+        },
+        {
+          trackName: 'Lỗi iTunes API (Rate Limit)',
+          artistName: 'Thử lại sau 1 phút',
+          previewUrl: ''
+        }
+      ]);
     } finally {
       setIsSearching(false);
     }
@@ -266,14 +287,8 @@ export default function CameraScreen({ session }: { session: Session | null }) {
       const ext = isVideo ? 'mp4' : 'jpg';
       const filePath = `${session.user.id}/${Date.now()}.${ext}`;
       
-      let uploadData: ArrayBuffer | Blob;
-      
-      if (photo?.base64) {
-        uploadData = decode(photo.base64);
-      } else {
-        const res = await fetch(mediaUri);
-        uploadData = await res.blob();
-      }
+      const res = await fetch(mediaUri);
+      let uploadData = await res.blob();
 
       const { error: storageError } = await supabase.storage
         .from('photos')
@@ -290,13 +305,22 @@ export default function CameraScreen({ session }: { session: Session | null }) {
       const insertData: any = {
         user_id: session.user.id,
         image_url: publicUrlData.publicUrl,
+        caption: caption || null,
+        song_preview_url: selectedMusic?.url || null,
+        song_title: selectedMusic?.title || null,
+        stickers_json: stickers.length > 0 ? stickers : null,
       };
-      
-      // Nếu bạn đã chạy SQL thêm cột thì uncomment các dòng này:
-      // insertData.caption = caption;
-      // insertData.music_url = selectedMusic?.url;
-      // insertData.music_title = selectedMusic?.title;
-      // insertData.stickers = stickers;
+
+      // Fetch username to save into photos table
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('username')
+        .eq('id', session.user.id)
+        .maybeSingle();
+        
+      if (profile?.username) {
+        insertData.username = profile.username;
+      }
 
       const { error: dbError } = await supabase
         .from('photos')
@@ -304,7 +328,12 @@ export default function CameraScreen({ session }: { session: Session | null }) {
 
       if (dbError) throw dbError;
 
-      alert('Đăng bài thành công!');
+      Toast.show({
+        type: 'success',
+        text1: 'Đăng bài thành công!',
+        position: 'top',
+        topOffset: 60,
+      });
       cancelPreview();
       navigation.navigate('Feed');
     } catch (error: any) {
@@ -514,7 +543,10 @@ export default function CameraScreen({ session }: { session: Session | null }) {
                       </TouchableOpacity>
                       <TouchableOpacity 
                         style={{ flex: 1, marginLeft: 15 }}
-                        onPress={() => playPreview(item.previewUrl)}
+                        onPress={() => {
+                          setSelectedMusic({ title: item.trackName + ' - ' + item.artistName, url: item.previewUrl });
+                          closeMusicModal();
+                        }}
                       >
                         <Text style={styles.musicTrackText} numberOfLines={1}>{item.trackName}</Text>
                         <Text style={styles.musicArtistText} numberOfLines={1}>{item.artistName}</Text>
