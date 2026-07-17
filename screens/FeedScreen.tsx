@@ -1,6 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, FlatList, Image, TouchableOpacity, Dimensions, ActivityIndicator, Modal } from 'react-native';
+import { View, Text, StyleSheet, FlatList, TouchableOpacity, Dimensions, ActivityIndicator, Modal, Animated } from 'react-native';
+import { Image } from 'expo-image';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { BlurView } from 'expo-blur';
+import { LinearGradient } from 'expo-linear-gradient';
 import { User, MessageCircle, ChevronDown, Camera, X, Music, Play, Pause } from 'lucide-react-native';
 import { supabase } from '../lib/supabase';
 import { StatusBar } from 'expo-status-bar';
@@ -10,6 +13,55 @@ import { Audio, Video, ResizeMode } from 'expo-av';
 const { width, height } = Dimensions.get('window');
 const SPACING = 10;
 const ITEM_SIZE = (width - SPACING * 4) / 3;
+
+const AnimatedFeedItem = ({ item, index, onPress, styles }: any) => {
+  const isVideo = item.image_url?.endsWith('.mp4');
+  const opacity = React.useRef(new Animated.Value(0)).current;
+  const translateY = React.useRef(new Animated.Value(30)).current;
+
+  React.useEffect(() => {
+    const row = Math.floor(index / 3);
+    const col = index % 3;
+    const delay = (row + col) * 150; // Diagonal stagger effect
+
+    Animated.parallel([
+      Animated.timing(opacity, {
+        toValue: 1,
+        duration: 400,
+        delay,
+        useNativeDriver: true,
+      }),
+      Animated.spring(translateY, {
+        toValue: 0,
+        friction: 8,
+        tension: 40,
+        delay,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, []);
+
+  return (
+    <Animated.View style={{ opacity, transform: [{ translateY }] }}>
+      <TouchableOpacity 
+        style={styles.photoContainer}
+        onPress={() => onPress(item)}
+      >
+        {isVideo ? (
+          <Video
+            source={{ uri: item.image_url }}
+            style={styles.photo}
+            resizeMode={ResizeMode.COVER}
+            shouldPlay={false}
+            isMuted={true}
+          />
+        ) : (
+          <Image source={{ uri: item.image_url }} style={styles.photo} contentFit="cover" transition={200} cachePolicy="memory-disk" />
+        )}
+      </TouchableOpacity>
+    </Animated.View>
+  );
+};
 
 export default function FeedScreen() {
   const [photos, setPhotos] = useState<any[]>([]);
@@ -77,9 +129,34 @@ export default function FeedScreen() {
 
   async function fetchPhotos() {
     setLoading(true);
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) {
+      setLoading(false);
+      return;
+    }
+    
+    // Fetch friends
+    const { data: friendData } = await supabase
+      .from('friendships')
+      .select('requester_id, receiver_id')
+      .eq('status', 'accepted')
+      .or(`requester_id.eq.${session.user.id},receiver_id.eq.${session.user.id}`);
+      
+    const friendIds = new Set<string>();
+    friendIds.add(session.user.id); // User can see their own photos
+    if (friendData) {
+      friendData.forEach(f => {
+        friendIds.add(f.requester_id);
+        friendIds.add(f.receiver_id);
+      });
+    }
+
+    const allowedIds = Array.from(friendIds);
+
     const { data, error } = await supabase
       .from('photos')
       .select('*')
+      .in('user_id', allowedIds)
       .order('created_at', { ascending: false });
 
     if (!error && data) {
@@ -96,7 +173,7 @@ export default function FeedScreen() {
         <User color="white" size={24} />
       </TouchableOpacity>
       <TouchableOpacity style={styles.everyoneBtn}>
-        <Text style={styles.everyoneText}>Everyone</Text>
+        <Text style={styles.everyoneText}>Mọi người</Text>
         <ChevronDown color="white" size={20} />
       </TouchableOpacity>
       <TouchableOpacity style={styles.headerIconBtn}>
@@ -105,37 +182,8 @@ export default function FeedScreen() {
     </View>
   );
 
-  const renderItem = ({ item }: { item: any }) => {
-    const isVideo = item.image_url?.endsWith('.mp4');
-    return (
-      <TouchableOpacity 
-        style={styles.photoContainer}
-        onPress={() => setSelectedPost(item)}
-      >
-        {isVideo ? (
-          <Video
-            source={{ uri: item.image_url }}
-            style={styles.photo}
-            resizeMode={ResizeMode.COVER}
-            shouldPlay={false} // Don't auto-play all in grid
-            isMuted={true}
-          />
-        ) : (
-          <Image source={{ uri: item.image_url }} style={styles.photo} />
-        )}
-        
-        {/* Overlay info on feed item */}
-        <View style={styles.thumbnailOverlay}>
-          <Text style={styles.thumbnailUsername}>{item.username || 'Người dùng'}</Text>
-          {item.song_title && (
-            <Text style={styles.thumbnailMusic} numberOfLines={1}>🎵 {item.song_title}</Text>
-          )}
-          {item.caption && (
-            <Text style={styles.thumbnailCaption} numberOfLines={2}>{item.caption}</Text>
-          )}
-        </View>
-      </TouchableOpacity>
-    );
+  const renderItem = ({ item, index }: { item: any, index: number }) => {
+    return <AnimatedFeedItem item={item} index={index} onPress={setSelectedPost} styles={styles} />;
   };
 
   const formatDate = (dateStr: string) => {
@@ -153,7 +201,7 @@ export default function FeedScreen() {
       {renderHeader()}
       
       {loading ? (
-        <ActivityIndicator size="large" color="#fca311" style={{ marginTop: 50 }} />
+        <ActivityIndicator size="large" color="#EFE8DD" style={{ marginTop: 50 }} />
       ) : (
         <FlatList
           data={photos}
@@ -180,94 +228,117 @@ export default function FeedScreen() {
         animationType="fade"
         onRequestClose={() => setSelectedPost(null)}
       >
-        <View style={styles.modalContainer}>
-          <View style={styles.modalHeader}>
-            <View style={styles.modalUserInfo}>
-              <View style={styles.modalAvatarPlaceholder}>
-                <User color="white" size={20} />
-              </View>
-              <View>
-                <Text style={styles.modalUsername}>
-                  {selectedPost?.username || 'Người dùng'}
-                </Text>
-                <Text style={styles.modalTime}>
-                  {formatDate(selectedPost?.created_at)}
-                </Text>
-                {selectedPost?.song_title && (
-                  <TouchableOpacity style={styles.modalMusicContainer} onPress={toggleMusic}>
-                    {isMusicPlaying ? <Pause color="white" size={12} /> : <Play color="white" size={12} />}
-                    <Text style={styles.modalMusicText} numberOfLines={1}>
-                      {selectedPost.song_title} {selectedPost.song_artist ? `- ${selectedPost.song_artist}` : ''}
-                    </Text>
-                  </TouchableOpacity>
-                )}
-              </View>
-            </View>
-            <TouchableOpacity 
-              style={styles.closeBtn} 
-              onPress={() => setSelectedPost(null)}
-            >
-              <X color="white" size={28} />
-            </TouchableOpacity>
-          </View>
-
-          <View style={styles.modalContent}>
-            {selectedPost?.image_url?.endsWith('.mp4') ? (
-              <Video
-                source={{ uri: selectedPost.image_url }}
-                style={styles.fullMedia}
-                resizeMode={ResizeMode.COVER}
-                shouldPlay
-                isLooping
-              />
-            ) : (
-              <Image 
-                source={{ uri: selectedPost?.image_url }} 
-                style={styles.fullMedia} 
-              />
-            )}
-            
-            {/* Render Stickers Safely */}
-            {(() => {
-              if (!selectedPost?.stickers_json) return null;
-              try {
-                let stickers = typeof selectedPost.stickers_json === 'string' 
-                  ? JSON.parse(selectedPost.stickers_json) 
-                  : selectedPost.stickers_json;
-                  
-                if (!Array.isArray(stickers)) return null;
-
-                return stickers.map((sticker: any) => (
-                  <View 
-                    key={sticker.id} 
-                    style={{ 
-                      position: 'absolute', 
-                      left: sticker.x, 
-                      top: sticker.y, 
-                      transform: [{ scale: sticker.scale }],
-                      zIndex: 20 
-                    }}
-                  >
-                    <View>
-                      <Text style={sticker.type === 'text' ? [styles.textSticker, { fontFamily: sticker.fontFamily || 'System', backgroundColor: sticker.bgColor || 'rgba(0,0,0,0.5)' }] : { fontSize: 60 }}>
-                        {sticker.emoji}
-                      </Text>
-                    </View>
+        <BlurView intensity={100} tint="dark" style={StyleSheet.absoluteFill}>
+          <SafeAreaView style={{ flex: 1 }}>
+            <View style={{ flex: 1, padding: 20 }}>
+              
+              <View style={styles.modalHeader}>
+                <View style={styles.modalUserInfo}>
+                  <View style={styles.modalAvatarPlaceholder}>
+                    <User color="white" size={24} />
                   </View>
-                ));
-              } catch (e) {
-                return null;
-              }
-            })()}
-          </View>
+                  <View>
+                    <Text style={styles.modalUsername}>
+                      {selectedPost?.username || 'Người dùng'}
+                    </Text>
+                    <Text style={styles.modalTime}>
+                      {formatDate(selectedPost?.created_at)}
+                    </Text>
+                  </View>
+                </View>
+                <TouchableOpacity 
+                  style={styles.closeBtn} 
+                  onPress={() => setSelectedPost(null)}
+                >
+                  <X color="white" size={32} />
+                </TouchableOpacity>
+              </View>
 
-          {/* Caption below the card */}
-          {selectedPost?.caption ? (
-            <View style={styles.captionContainer}>
-              <Text style={styles.captionText}>{selectedPost.caption}</Text>
+              <View style={[styles.modalContent, { flex: 1, borderRadius: 30, overflow: 'hidden', backgroundColor: '#111', marginTop: 10, marginBottom: 20, elevation: 10, shadowColor: '#000', shadowOpacity: 0.5, shadowRadius: 20 }]}>
+                {selectedPost?.image_url?.endsWith('.mp4') ? (
+                  <Video
+                    source={{ uri: selectedPost.image_url }}
+                    style={styles.fullMedia}
+                    resizeMode={ResizeMode.COVER}
+                    shouldPlay
+                    isLooping
+                  />
+                ) : (
+                  <Image 
+                    source={{ uri: selectedPost?.image_url }} 
+                    style={styles.fullMedia}
+                    contentFit="cover"
+                    transition={200}
+                    cachePolicy="memory-disk"
+                  />
+                )}
+                
+                {/* Render Stickers Safely */}
+                {(() => {
+                  if (!selectedPost?.stickers_json) return null;
+                  try {
+                    let stickers = typeof selectedPost.stickers_json === 'string' 
+                      ? JSON.parse(selectedPost.stickers_json) 
+                      : selectedPost.stickers_json;
+                      
+                    if (!Array.isArray(stickers)) return null;
+
+                    return stickers.map((sticker: any) => (
+                      <View 
+                        key={sticker.id} 
+                        style={{ 
+                          position: 'absolute', 
+                          left: sticker.x, 
+                          top: sticker.y, 
+                          transform: [{ scale: sticker.scale }],
+                          zIndex: 20 
+                        }}
+                      >
+                        <View>
+                          <Text style={sticker.type === 'text' ? [styles.textSticker, { fontFamily: sticker.fontFamily || 'System', backgroundColor: sticker.bgColor || 'rgba(0,0,0,0.5)' }] : { fontSize: 60 }}>
+                            {sticker.emoji}
+                          </Text>
+                        </View>
+                      </View>
+                    ));
+                  } catch (e) {
+                    return null;
+                  }
+                })()}
+
+                {/* Gradient and Info Overlay inside the image */}
+                <LinearGradient
+                  colors={['transparent', 'rgba(0,0,0,0.9)']}
+                  style={{ position: 'absolute', bottom: 0, left: 0, right: 0, padding: 20, paddingTop: 80 }}
+                >
+                  {selectedPost?.caption ? (
+                    <Text style={{ color: 'white', fontSize: 18, marginBottom: 15, textShadowColor: 'rgba(0,0,0,0.5)', textShadowOffset: {width: 0, height: 1}, textShadowRadius: 3 }}>
+                      {selectedPost.caption}
+                    </Text>
+                  ) : null}
+                  
+                  {selectedPost?.song_title && (
+                    <TouchableOpacity style={styles.modalMusicContainer} onPress={toggleMusic}>
+                      <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: '#EFE8DD', justifyContent: 'center', alignItems: 'center', marginRight: 12, shadowColor: '#EFE8DD', shadowOpacity: 0.5, shadowRadius: 10 }}>
+                        {isMusicPlaying ? <Pause color="black" size={18} /> : <Play color="black" size={18} style={{ marginLeft: 3 }} />}
+                      </View>
+                      <View>
+                        <Text style={{ color: 'white', fontSize: 16, fontWeight: 'bold' }}>
+                          {selectedPost.song_title}
+                        </Text>
+                        {selectedPost.song_artist && (
+                          <Text style={{ color: '#ccc', fontSize: 12, marginTop: 2 }}>
+                            {selectedPost.song_artist}
+                          </Text>
+                        )}
+                      </View>
+                    </TouchableOpacity>
+                  )}
+                </LinearGradient>
+              </View>
             </View>
-          ) : null}
-        </View>
+          </SafeAreaView>
+        </BlurView>
       </Modal>
     </SafeAreaView>
   );
@@ -276,7 +347,7 @@ export default function FeedScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#282522',
+    backgroundColor: '#091B42',
   },
   header: {
     flexDirection: 'row',
@@ -360,7 +431,7 @@ const styles = StyleSheet.create({
     width: 70,
     height: 70,
     borderRadius: 35,
-    backgroundColor: '#fca311', // Locket yellow
+    backgroundColor: '#EFE8DD', // Locket yellow
     justifyContent: 'center',
     alignItems: 'center',
     shadowColor: '#000',

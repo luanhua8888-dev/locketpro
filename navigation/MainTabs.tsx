@@ -6,6 +6,7 @@ import { Session } from '@supabase/supabase-js';
 import CameraScreen from '../screens/CameraScreen';
 import FeedScreen from '../screens/FeedScreen';
 import ProfileScreen from '../screens/ProfileScreen';
+import FriendsScreen from '../screens/FriendsScreen';
 
 const Tab = createBottomTabNavigator();
 
@@ -41,6 +42,10 @@ export default function MainTabs({ session }: { session: Session | null }) {
         options={{
           tabBarIcon: ({ color, size }) => <User color={color} size={30} />
         }}
+      />
+      <Tab.Screen 
+        name="Friends" 
+        component={FriendsScreen}
       />
     </Tab.Navigator>
   );

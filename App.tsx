@@ -1,10 +1,24 @@
 import { useState, useEffect } from 'react';
+import { View, Text } from 'react-native';
 import { Session } from '@supabase/supabase-js';
 import { NavigationContainer } from '@react-navigation/native';
 import { supabase } from './lib/supabase';
 import Auth from './components/Auth';
 import MainTabs from './navigation/MainTabs';
 import Toast from 'react-native-toast-message';
+
+const toastConfig = {
+  success: (props: any) => (
+    <View style={{ width: '85%', backgroundColor: 'rgba(30, 30, 30, 0.95)', paddingVertical: 14, paddingHorizontal: 20, borderRadius: 30, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 10, elevation: 5 }}>
+      <Text style={{ color: '#EFE8DD', fontSize: 16, fontWeight: '700' }}>✨ {props.text1}</Text>
+    </View>
+  ),
+  error: (props: any) => (
+    <View style={{ width: '85%', backgroundColor: 'rgba(255, 50, 50, 0.95)', paddingVertical: 14, paddingHorizontal: 20, borderRadius: 30, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 10, elevation: 5 }}>
+      <Text style={{ color: 'white', fontSize: 16, fontWeight: '700' }}>❌ {props.text1}</Text>
+    </View>
+  )
+};
 
 export default function App() {
   const [session, setSession] = useState<Session | null>(null);
@@ -55,7 +69,7 @@ export default function App() {
       <NavigationContainer>
         <MainTabs session={session} />
       </NavigationContainer>
-      <Toast />
+      <Toast config={toastConfig} />
     </>
   );
 }

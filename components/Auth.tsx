@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { StyleSheet, View, AppState, Alert, TextInput, TouchableOpacity, Text, Animated, Easing, KeyboardAvoidingView, Platform, Image, Keyboard, TouchableWithoutFeedback } from 'react-native';
-import { Eye, EyeOff } from 'lucide-react-native';
+import { Eye, EyeOff, Star } from 'lucide-react-native';
+import { FontAwesome } from '@expo/vector-icons';
 import { supabase } from '../lib/supabase';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useFonts, DancingScript_700Bold } from '@expo-google-fonts/dancing-script';
@@ -35,8 +36,24 @@ export default function Auth() {
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(50)).current;
   const floatAnim = useRef(new Animated.Value(0)).current;
-  const rotate3DAnim = useRef(new Animated.Value(0)).current;
+  const scaleAnim = useRef(new Animated.Value(0.3)).current;
   
+  const logoWanderX = useRef(new Animated.Value(0)).current;
+  const logoWanderY = useRef(new Animated.Value(0)).current;
+  const logoWanderRotate = useRef(new Animated.Value(0)).current;
+  
+  // Clones
+  const clonesCount = 6;
+  const cloneAnims = useRef(
+    Array.from({ length: clonesCount }).map(() => ({
+      x: new Animated.Value(0),
+      y: new Animated.Value(0),
+      rot: new Animated.Value(0),
+      op: new Animated.Value(0),
+      scale: new Animated.Value(0),
+    }))
+  ).current;
+
   // Transition Form animation
   const formOpacity = useRef(new Animated.Value(1)).current;
   const formScale = useRef(new Animated.Value(1)).current;
@@ -46,7 +63,7 @@ export default function Auth() {
     Animated.parallel([
       Animated.timing(fadeAnim, {
         toValue: 1,
-        duration: 1000,
+        duration: 800,
         useNativeDriver: true,
       }),
       Animated.spring(slideAnim, {
@@ -55,13 +72,80 @@ export default function Auth() {
         friction: 6,
         useNativeDriver: true,
       }),
-      Animated.spring(rotate3DAnim, {
+      Animated.spring(scaleAnim, {
         toValue: 1,
-        tension: 10,
-        friction: 4,
+        tension: 50,
+        friction: 5,
         useNativeDriver: true,
       })
     ]).start();
+
+    // Logo wandering idle animation
+    const logoWanderAnimation = Animated.loop(
+      Animated.sequence([
+        Animated.delay(5000), // wait 5 seconds before starting to wander
+        Animated.parallel([
+          Animated.timing(logoWanderX, { toValue: 80, duration: 2000, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+          Animated.timing(logoWanderY, { toValue: -60, duration: 2000, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+          Animated.timing(logoWanderRotate, { toValue: 1, duration: 2000, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+        ]),
+        Animated.parallel([
+          Animated.timing(logoWanderX, { toValue: -80, duration: 2000, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+          Animated.timing(logoWanderY, { toValue: 60, duration: 2000, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+          Animated.timing(logoWanderRotate, { toValue: -1, duration: 2000, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+        ]),
+        Animated.parallel([
+          Animated.timing(logoWanderX, { toValue: -40, duration: 2000, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+          Animated.timing(logoWanderY, { toValue: -40, duration: 2000, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+          Animated.timing(logoWanderRotate, { toValue: 0.5, duration: 2000, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+        ]),
+        Animated.parallel([
+          Animated.timing(logoWanderX, { toValue: 0, duration: 2000, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+          Animated.timing(logoWanderY, { toValue: 0, duration: 2000, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+          Animated.timing(logoWanderRotate, { toValue: 0, duration: 2000, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+        ]),
+      ])
+    );
+    logoWanderAnimation.start();
+
+    // Clones crazy animation
+    const cloneAnimations = cloneAnims.map((clone, i) => {
+      const angle = (i * (360 / clonesCount)) * (Math.PI / 180);
+      const radius = 120;
+      
+      const explode = Animated.parallel([
+        Animated.timing(clone.op, { toValue: 0.6, duration: 500, useNativeDriver: true }),
+        Animated.spring(clone.scale, { toValue: 0.6, friction: 4, useNativeDriver: true }),
+        Animated.spring(clone.x, { toValue: Math.cos(angle) * radius, friction: 4, useNativeDriver: true }),
+        Animated.spring(clone.y, { toValue: Math.sin(angle) * radius, friction: 4, useNativeDriver: true }),
+      ]);
+      
+      const pt1x = (Math.random() - 0.5) * 400;
+      const pt1y = (Math.random() - 0.5) * 800;
+      const pt2x = (Math.random() - 0.5) * 400;
+      const pt2y = (Math.random() - 0.5) * 800;
+      const rot1 = Math.random() * 4 - 2;
+      const rot2 = Math.random() * 4 - 2;
+
+      const crazyWander = Animated.loop(
+        Animated.sequence([
+          Animated.parallel([
+            Animated.timing(clone.x, { toValue: pt1x, duration: 2000, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+            Animated.timing(clone.y, { toValue: pt1y, duration: 2000, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+            Animated.timing(clone.rot, { toValue: rot1, duration: 2000, useNativeDriver: true }),
+          ]),
+          Animated.parallel([
+            Animated.timing(clone.x, { toValue: pt2x, duration: 2000, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+            Animated.timing(clone.y, { toValue: pt2y, duration: 2000, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+            Animated.timing(clone.rot, { toValue: rot2, duration: 2000, useNativeDriver: true }),
+          ])
+        ])
+      );
+
+      return Animated.sequence([Animated.delay(5000), explode, crazyWander]);
+    });
+
+    Animated.parallel(cloneAnimations).start();
 
     // Floating animation (loop)
     Animated.loop(
@@ -236,12 +320,12 @@ export default function Auth() {
 
   const floatingY = floatAnim.interpolate({
     inputRange: [0, 1],
-    outputRange: [0, -20],
+    outputRange: [0, -15],
   });
 
-  const rotateX = rotate3DAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: ['-90deg', '0deg'],
+  const logoSpin = logoWanderRotate.interpolate({
+    inputRange: [-1, 0, 1],
+    outputRange: ['-30deg', '0deg', '30deg']
   });
 
   if (!fontsLoaded) {
@@ -249,10 +333,7 @@ export default function Auth() {
   }
 
   return (
-    <LinearGradient
-      colors={['#020c1b', '#0a192f', '#112240']}
-      style={styles.container}
-    >
+    <View style={[styles.container, { backgroundColor: '#091B42' }]}>
       <TouchableWithoutFeedback onPress={() => Keyboard.dismiss()}>
         <KeyboardAvoidingView 
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'} 
@@ -264,16 +345,47 @@ export default function Auth() {
             { 
               opacity: fadeAnim, 
               transform: [
-                { translateY: floatingY },
-                { perspective: 1000 },
-                { rotateX: rotateX }
+                { scale: scaleAnim },
+                { translateY: floatingY }
               ] 
             }
           ]}
         >
-          <Image 
-            source={require('../assets/luna-logo.jpg')} 
-            style={styles.logoImage} 
+          {/* Shadow Clones */}
+          {cloneAnims.map((clone, i) => {
+            const cloneSpin = clone.rot.interpolate({
+              inputRange: [-2, 0, 2],
+              outputRange: ['-360deg', '0deg', '360deg']
+            });
+            return (
+              <Animated.Image 
+                key={i}
+                source={require('../assets/logo1_nobg.png')} 
+                style={[
+                  styles.logoImage, 
+                  { 
+                    position: 'absolute',
+                    opacity: clone.op,
+                    transform: [
+                      { translateX: clone.x }, 
+                      { translateY: clone.y }, 
+                      { scale: clone.scale },
+                      { rotate: cloneSpin }
+                    ] 
+                  }
+                ]} 
+                resizeMode="contain"
+              />
+            );
+          })}
+
+          <Animated.Image 
+            source={require('../assets/logo1_nobg.png')} 
+            style={[
+              styles.logoImage, 
+              { transform: [{ translateX: logoWanderX }, { translateY: logoWanderY }, { rotate: logoSpin }] }
+            ]} 
+            resizeMode="contain"
           />
           <Text style={styles.title}>Luna Snap</Text>
           <Text style={styles.subtitle}>Kết nối khoảnh khắc chân thực</Text>
@@ -287,7 +399,7 @@ export default function Auth() {
             alignItems: 'center'
           }}
         >
-          <View style={[styles.glassCard, { backgroundColor: 'rgba(255, 255, 255, 0.07)' }]}>
+          <View style={[styles.glassCard, { backgroundColor: 'transparent' }]}>
             <Animated.View style={{ opacity: formOpacity, transform: [{ scale: formScale }] }}>
               <View style={styles.inputContainer}>
                 <TextInput
@@ -295,7 +407,7 @@ export default function Auth() {
                   onChangeText={(text) => setUsername(text)}
                   value={username}
                   placeholder="Username (Tên đăng nhập)"
-                  placeholderTextColor="#999"
+                  placeholderTextColor="#A0A0A0"
                   autoCapitalize={'none'}
                 />
               </View>
@@ -307,7 +419,7 @@ export default function Auth() {
                     onChangeText={(text) => setEmail(text)}
                     value={email}
                     placeholder="Email (Dùng để bảo mật tài khoản)"
-                    placeholderTextColor="#999"
+                    placeholderTextColor="#A0A0A0"
                     autoCapitalize={'none'}
                   />
                 </View>
@@ -320,15 +432,17 @@ export default function Auth() {
                   value={password}
                   secureTextEntry={!showPassword}
                   placeholder="Mật khẩu"
-                  placeholderTextColor="#999"
+                  placeholderTextColor="#A0A0A0"
                   autoCapitalize={'none'}
                 />
-                <TouchableOpacity 
-                  style={styles.eyeIcon} 
-                  onPress={() => setShowPassword(!showPassword)}
-                >
-                  {showPassword ? <EyeOff color="#3399FF" size={24} /> : <Eye color="#3399FF" size={24} />}
-                </TouchableOpacity>
+                {password.length > 0 && (
+                  <TouchableOpacity 
+                    style={styles.eyeIcon} 
+                    onPress={() => setShowPassword(!showPassword)}
+                  >
+                    {showPassword ? <EyeOff color="#EFE8DD" size={24} /> : <Eye color="#999" size={24} />}
+                  </TouchableOpacity>
+                )}
               </View>
               
               <TouchableOpacity 
@@ -347,21 +461,30 @@ export default function Auth() {
                 <View style={styles.divider} />
               </View>
 
-              <TouchableOpacity 
-                style={[styles.button, styles.googleButton]} 
-                disabled={loading} 
-                onPress={handleGoogleLogin}
-              >
-                <Text style={styles.googleButtonText}>Tiếp tục với Google</Text>
-              </TouchableOpacity>
-              
+              <View style={styles.socialButtonsContainer}>
+                <TouchableOpacity 
+                  style={styles.socialButton} 
+                  disabled={loading} 
+                  onPress={handleGoogleLogin}
+                >
+                  <FontAwesome name="google" size={28} color="#FFFFFF" />
+                </TouchableOpacity>
+                
+                <TouchableOpacity 
+                  style={styles.socialButton} 
+                  disabled={loading}
+                >
+                  <FontAwesome name="apple" size={28} color="#FFFFFF" />
+                </TouchableOpacity>
+              </View>
+
               <TouchableOpacity 
                 style={styles.switchModeButton} 
                 disabled={loading} 
                 onPress={toggleMode}
               >
                 <Text style={styles.switchModeText}>
-                  {isLogin ? 'Chưa có tài khoản? Đăng ký ngay' : 'Đã có tài khoản? Đăng nhập'}
+                  {isLogin ? 'Chưa có tài khoản? Đăng ký' : 'Đã có tài khoản? Đăng nhập'}
                 </Text>
               </TouchableOpacity>
 
@@ -371,7 +494,7 @@ export default function Auth() {
         </Animated.View>
         </KeyboardAvoidingView>
       </TouchableWithoutFeedback>
-    </LinearGradient>
+    </View>
   );
 }
 
@@ -386,62 +509,56 @@ const styles = StyleSheet.create({
     padding: 24,
   },
   logoContainer: {
+    width: '100%',
     alignItems: 'center',
     marginBottom: 40,
   },
   logoImage: {
     width: 140,
     height: 140,
-    borderRadius: 70,
-    marginBottom: 15,
+    marginBottom: 10,
   },
   title: {
+    width: '100%',
     fontFamily: 'DancingScript_700Bold',
-    fontSize: 64,
-    color: '#3399FF',
+    fontSize: 68,
+    color: '#FFFFFF',
     textAlign: 'center',
-    textShadowColor: 'rgba(51, 153, 255, 0.5)',
-    textShadowOffset: { width: 0, height: 4 },
-    textShadowRadius: 15,
+    marginTop: 10,
+    paddingHorizontal: 30,
   },
   subtitle: {
     fontSize: 16,
-    color: 'rgba(255, 255, 255, 0.8)',
-    marginTop: 0,
+    color: '#888888',
+    marginTop: 5,
+    fontWeight: '600',
     letterSpacing: 0.5,
   },
   glassCard: {
     width: '100%',
-    padding: 25,
-    borderRadius: 35,
-    overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.15)',
+    paddingHorizontal: 20,
+    paddingVertical: 10,
   },
   inputContainer: {
     marginBottom: 16,
   },
   input: {
-    backgroundColor: 'rgba(0, 0, 0, 0.4)',
-    color: 'white',
-    padding: 18,
-    borderRadius: 18,
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    color: '#FFFFFF',
+    padding: 20,
+    borderRadius: 24,
     fontSize: 16,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
   },
   passwordContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(0, 0, 0, 0.4)',
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    borderRadius: 24,
   },
   passwordInput: {
     flex: 1,
-    color: 'white',
-    padding: 18,
+    color: '#FFFFFF',
+    padding: 20,
     fontSize: 16,
   },
   eyeIcon: {
@@ -449,33 +566,34 @@ const styles = StyleSheet.create({
   },
   button: {
     padding: 20,
-    borderRadius: 18,
     alignItems: 'center',
-    marginTop: 12,
+    justifyContent: 'center',
+    marginTop: 15,
   },
   primaryButton: {
-    backgroundColor: '#3399FF',
-    shadowColor: '#3399FF',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.4,
-    shadowRadius: 12,
-    elevation: 8,
+    backgroundColor: '#EFE8DD',
+    borderRadius: 30,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 10,
+    elevation: 4,
   },
   buttonText: {
-    color: '#FFFFFF',
+    color: '#000000',
     fontWeight: '900',
     fontSize: 18,
     letterSpacing: 0.5,
   },
   switchModeButton: {
-    padding: 15,
+    padding: 20,
     alignItems: 'center',
     marginTop: 10,
   },
   switchModeText: {
-    color: 'rgba(255, 255, 255, 0.7)',
-    fontSize: 15,
-    textDecorationLine: 'underline',
+    color: '#888',
+    fontSize: 16,
+    fontWeight: '700',
   },
   dividerContainer: {
     flexDirection: 'row',
@@ -485,22 +603,26 @@ const styles = StyleSheet.create({
   divider: {
     flex: 1,
     height: 1,
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    backgroundColor: '#333333',
   },
   dividerText: {
-    color: 'rgba(255, 255, 255, 0.5)',
+    color: '#666666',
     paddingHorizontal: 10,
     fontSize: 14,
     fontWeight: 'bold',
   },
-  googleButton: {
-    backgroundColor: 'white',
-    shadowColor: 'rgba(0, 0, 0, 0.1)',
-    marginTop: 0,
+  socialButtonsContainer: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 20,
+    marginTop: 10,
   },
-  googleButtonText: {
-    color: '#333',
-    fontWeight: 'bold',
-    fontSize: 18,
+  socialButton: {
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
 });
