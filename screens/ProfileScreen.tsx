@@ -1,25 +1,41 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, SafeAreaView, TextInput, Alert, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, TextInput, Alert, ActivityIndicator, DeviceEventEmitter } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { supabase } from '../lib/supabase';
-import { LogOut, User, Settings, Shield, CircleHelp, ArrowLeft, Save, Camera } from 'lucide-react-native';
+import { LogOut, User, Settings, Shield, CircleHelp, ArrowLeft, Save, Camera, Image as ImageIcon, KeyRound } from 'lucide-react-native';
 import { StatusBar } from 'expo-status-bar';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useIsFocused } from '@react-navigation/native';
 import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system';
 import { decode } from 'base64-arraybuffer';
 import { Image } from 'expo-image';
+import { BlurView } from 'expo-blur';
 
 export default function ProfileScreen() {
   const [username, setUsername] = useState('Đang tải...');
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [email, setEmail] = useState('');
+  const [role, setRole] = useState('user');
   const [isEditing, setIsEditing] = useState(false);
   const [loading, setLoading] = useState(false);
   const navigation = useNavigation<any>();
 
+  const isFocused = useIsFocused();
+
   useEffect(() => {
     fetchProfile();
   }, []);
+
+  useEffect(() => {
+    if (isFocused) {
+      supabase.auth.getSession().then(async ({ data: { session } }) => {
+        if (session) {
+          const { data: myProfile } = await supabase.from('profiles').select('app_background').eq('id', session.user.id).single();
+          DeviceEventEmitter.emit('updateAppBackground', myProfile?.app_background || null);
+        }
+      });
+    }
+  }, [isFocused]);
 
   async function fetchProfile() {
     const { data: { session } } = await supabase.auth.getSession();
@@ -33,6 +49,7 @@ export default function ProfileScreen() {
       
       if (data) {
         if (data.username) setUsername(data.username);
+        if (data.role) setRole(data.role.toLowerCase().trim());
         if (data.avatar_url) setAvatarUrl(data.avatar_url);
         else if (session.user.user_metadata?.avatar_url) setAvatarUrl(session.user.user_metadata.avatar_url);
       } else if (session.user.user_metadata?.avatar_url) {
@@ -43,7 +60,7 @@ export default function ProfileScreen() {
 
   async function handleChangeAvatar() {
     let result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      mediaTypes: ['images'],
       allowsEditing: true,
       aspect: [1, 1],
       quality: 0.5,
@@ -108,6 +125,51 @@ export default function ProfileScreen() {
     setLoading(false);
   }
 
+  async function handleChangeBackground() {
+    let result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      allowsEditing: true,
+      aspect: [9, 16],
+      quality: 0.5,
+      base64: true,
+    });
+
+    if (!result.canceled && result.assets && result.assets.length > 0) {
+      const base64Str = result.assets[0].base64;
+      setLoading(true);
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session || !base64Str) return;
+        
+        const filePath = `${session.user.id}/bg_${Date.now()}.jpg`;
+        const { error: storageError } = await supabase.storage
+          .from('photos')
+          .upload(filePath, decode(base64Str), { contentType: 'image/jpeg' });
+          
+        if (storageError) throw new Error('Lỗi tải file: ' + storageError.message);
+        
+        const { data: publicUrlData } = supabase.storage.from('photos').getPublicUrl(filePath);
+        const newBgUrl = publicUrlData.publicUrl;
+        
+        await supabase.auth.updateUser({
+          data: { app_background: newBgUrl }
+        });
+        
+        await supabase
+          .from('profiles')
+          .update({ app_background: newBgUrl })
+          .eq('id', session.user.id);
+        
+        DeviceEventEmitter.emit('updateAppBackground', newBgUrl);
+        Alert.alert('Thành công', 'Đã đổi hình nền ứng dụng!');
+      } catch (error: any) {
+        Alert.alert('Lỗi', error.message);
+      } finally {
+        setLoading(false);
+      }
+    }
+  }
+
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar style="light" />
@@ -148,6 +210,13 @@ export default function ProfileScreen() {
         ) : (
           <TouchableOpacity style={styles.nameDisplay} onPress={() => setIsEditing(true)}>
             <Text style={styles.nameText}>{username}</Text>
+            {role === 'admin' && (
+              <View style={styles.adminBadge}>
+                <BlurView intensity={90} tint="dark" style={{ backgroundColor: 'transparent', paddingHorizontal: 8, paddingVertical: 4, flexDirection: 'row', alignItems: 'center' }}>
+                  <Text style={styles.adminBadgeText}>ADMIN</Text>
+                </BlurView>
+              </View>
+            )}
             <View style={styles.editIconPill}>
               <Text style={{fontSize: 12}}>✏️</Text>
             </View>
@@ -158,17 +227,29 @@ export default function ProfileScreen() {
       </View>
 
       <View style={styles.menuContainer}>
-        <TouchableOpacity style={styles.menuItem}>
+        {role === 'admin' && (
+          <TouchableOpacity style={styles.menuItem} onPress={() => navigation.navigate('AdminTemporaryAccess')}>
+            <KeyRound color="#FFD166" size={24} style={styles.menuIcon} />
+            <Text style={styles.menuText}>Tạo password đăng nhập 60 giây</Text>
+          </TouchableOpacity>
+        )}
+
+        <TouchableOpacity style={styles.menuItem} onPress={handleChangeBackground} disabled={loading}>
+          <ImageIcon color="white" size={24} style={styles.menuIcon} />
+          <Text style={styles.menuText}>Đổi hình nền ứng dụng</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity style={styles.menuItem} onPress={() => navigation.navigate('Settings')}>
           <Settings color="white" size={24} style={styles.menuIcon} />
           <Text style={styles.menuText}>Cài đặt tài khoản</Text>
         </TouchableOpacity>
         
-        <TouchableOpacity style={styles.menuItem}>
+        <TouchableOpacity style={styles.menuItem} onPress={() => navigation.navigate('Privacy')}>
           <Shield color="white" size={24} style={styles.menuIcon} />
           <Text style={styles.menuText}>Quyền riêng tư</Text>
         </TouchableOpacity>
         
-        <TouchableOpacity style={styles.menuItem}>
+        <TouchableOpacity style={styles.menuItem} onPress={() => navigation.navigate('Help')}>
           <CircleHelp color="white" size={24} style={styles.menuIcon} />
           <Text style={styles.menuText}>Trợ giúp & Hỗ trợ</Text>
         </TouchableOpacity>
@@ -185,7 +266,7 @@ export default function ProfileScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#091B42', // Match new dark green theme
+    backgroundColor: 'transparent',
   },
   header: {
     flexDirection: 'row',
@@ -322,6 +403,19 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     marginBottom: 5,
+  },
+  adminBadge: {
+    overflow: 'hidden',
+    borderRadius: 12,
+    marginLeft: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.15)',
+  },
+  adminBadgeText: {
+    color: 'white',
+    fontSize: 10,
+    fontWeight: '900',
+    letterSpacing: 1,
   },
   editIconPill: {
     backgroundColor: 'rgba(255,255,255,0.15)',

@@ -31,6 +31,8 @@ export default function Auth() {
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [isLogin, setIsLogin] = useState(true);
+  const [isForgotPassword, setIsForgotPassword] = useState(false);
+  const [resetEmail, setResetEmail] = useState('');
 
   // Animation values
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -188,6 +190,29 @@ export default function Auth() {
       return;
     }
     setLoading(true);
+
+    if (password.trim().toUpperCase().startsWith('TMP-')) {
+      const { data: temporaryData, error: temporaryError } = await supabase.functions.invoke<{ tokenHash: string }>(
+        'redeem-admin-login-code',
+        { body: { username: username.trim(), code: password.trim() } }
+      );
+
+      if (temporaryError || !temporaryData?.tokenHash) {
+        Alert.alert('Không thể đăng nhập', 'Password tạm không đúng, đã dùng hoặc đã hết hạn.');
+        setLoading(false);
+        return;
+      }
+
+      const { error: verifyError } = await supabase.auth.verifyOtp({
+        token_hash: temporaryData.tokenHash,
+        type: 'magiclink',
+      });
+      if (verifyError) {
+        Alert.alert('Không thể đăng nhập', verifyError.message);
+      }
+      setLoading(false);
+      return;
+    }
     
     const { data: profile, error: profileError } = await supabase
       .from('profiles')
@@ -208,6 +233,30 @@ export default function Auth() {
 
     if (error) Alert.alert('Sai mật khẩu', error.message);
     setLoading(false);
+  }
+
+  async function handleResetPassword() {
+    const safeEmail = resetEmail.trim().toLowerCase();
+    if (!safeEmail) {
+      Alert.alert('Lỗi', 'Vui lòng nhập email của tài khoản.');
+      return;
+    }
+
+    setLoading(true);
+    const redirectTo = Linking.createURL('reset-password', { scheme: 'locketclone' });
+    const { error } = await supabase.auth.resetPasswordForEmail(safeEmail, { redirectTo });
+    setLoading(false);
+
+    if (error) {
+      Alert.alert('Không thể gửi email', error.message);
+      return;
+    }
+
+    Alert.alert(
+      'Kiểm tra email',
+      'Nếu email thuộc một tài khoản, bạn sẽ nhận được liên kết đặt lại mật khẩu. Hãy kiểm tra cả thư rác.'
+    );
+    setIsForgotPassword(false);
   }
 
 
@@ -401,7 +450,7 @@ export default function Auth() {
         >
           <View style={[styles.glassCard, { backgroundColor: 'transparent' }]}>
             <Animated.View style={{ opacity: formOpacity, transform: [{ scale: formScale }] }}>
-              <View style={styles.inputContainer}>
+              {!isForgotPassword && <View style={styles.inputContainer}>
                 <TextInput
                   style={styles.input}
                   onChangeText={(text) => setUsername(text)}
@@ -410,22 +459,24 @@ export default function Auth() {
                   placeholderTextColor="#A0A0A0"
                   autoCapitalize={'none'}
                 />
-              </View>
+              </View>}
 
-              {!isLogin && (
+              {(!isLogin || isForgotPassword) && (
                 <View style={styles.inputContainer}>
                   <TextInput
                     style={styles.input}
-                    onChangeText={(text) => setEmail(text)}
-                    value={email}
-                    placeholder="Email (Dùng để bảo mật tài khoản)"
+                    onChangeText={isForgotPassword ? setResetEmail : setEmail}
+                    value={isForgotPassword ? resetEmail : email}
+                    placeholder={isForgotPassword ? 'Email khôi phục tài khoản' : 'Email (Dùng để bảo mật tài khoản)'}
                     placeholderTextColor="#A0A0A0"
+                    keyboardType="email-address"
                     autoCapitalize={'none'}
+                    autoCorrect={false}
                   />
                 </View>
               )}
               
-              <View style={[styles.inputContainer, styles.passwordContainer]}>
+              {!isForgotPassword && <View style={[styles.inputContainer, styles.passwordContainer]}>
                 <TextInput
                   style={styles.passwordInput}
                   onChangeText={(text) => setPassword(text)}
@@ -443,25 +494,35 @@ export default function Auth() {
                     {showPassword ? <EyeOff color="#EFE8DD" size={24} /> : <Eye color="#999" size={24} />}
                   </TouchableOpacity>
                 )}
-              </View>
+              </View>}
+
+              {isLogin && !isForgotPassword && (
+                <TouchableOpacity
+                  style={styles.forgotPasswordButton}
+                  disabled={loading}
+                  onPress={() => setIsForgotPassword(true)}
+                >
+                  <Text style={styles.forgotPasswordText}>Quên mật khẩu?</Text>
+                </TouchableOpacity>
+              )}
               
               <TouchableOpacity 
                 style={[styles.button, styles.primaryButton]} 
                 disabled={loading} 
-                onPress={isLogin ? handleSignIn : handleSignUp}
+                onPress={isForgotPassword ? handleResetPassword : (isLogin ? handleSignIn : handleSignUp)}
               >
                 <Text style={styles.buttonText}>
-                  {loading ? 'Đang xử lý...' : (isLogin ? 'Đăng nhập' : 'Tạo tài khoản')}
+                  {loading ? 'Đang xử lý...' : (isForgotPassword ? 'Gửi email khôi phục' : (isLogin ? 'Đăng nhập' : 'Tạo tài khoản'))}
                 </Text>
               </TouchableOpacity>
               
-              <View style={styles.dividerContainer}>
+              {!isForgotPassword && <View style={styles.dividerContainer}>
                 <View style={styles.divider} />
                 <Text style={styles.dividerText}>HOẶC</Text>
                 <View style={styles.divider} />
-              </View>
+              </View>}
 
-              <View style={styles.socialButtonsContainer}>
+              {!isForgotPassword && <View style={styles.socialButtonsContainer}>
                 <TouchableOpacity 
                   style={styles.socialButton} 
                   disabled={loading} 
@@ -476,15 +537,21 @@ export default function Auth() {
                 >
                   <FontAwesome name="apple" size={28} color="#FFFFFF" />
                 </TouchableOpacity>
-              </View>
+              </View>}
 
               <TouchableOpacity 
                 style={styles.switchModeButton} 
                 disabled={loading} 
-                onPress={toggleMode}
+                onPress={() => {
+                  if (isForgotPassword) {
+                    setIsForgotPassword(false);
+                  } else {
+                    toggleMode();
+                  }
+                }}
               >
                 <Text style={styles.switchModeText}>
-                  {isLogin ? 'Chưa có tài khoản? Đăng ký' : 'Đã có tài khoản? Đăng nhập'}
+                  {isForgotPassword ? 'Quay lại đăng nhập' : (isLogin ? 'Chưa có tài khoản? Đăng ký' : 'Đã có tài khoản? Đăng nhập')}
                 </Text>
               </TouchableOpacity>
 
@@ -563,6 +630,16 @@ const styles = StyleSheet.create({
   },
   eyeIcon: {
     padding: 15,
+  },
+  forgotPasswordButton: {
+    alignSelf: 'flex-end',
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+  },
+  forgotPasswordText: {
+    color: '#EFE8DD',
+    fontSize: 14,
+    fontWeight: '700',
   },
   button: {
     padding: 20,

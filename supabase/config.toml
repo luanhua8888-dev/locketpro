@@ -1,0 +1,8 @@
+[functions.create-admin-login-code]
+verify_jwt = false
+
+[functions.redeem-admin-login-code]
+verify_jwt = false
+
+[functions.complete-temporary-password-reset]
+verify_jwt = false

@@ -8,9 +8,11 @@
     "icon": "./assets/logo1_nobg.png",
     "userInterfaceStyle": "light",
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.lunasnap.app"
     },
     "android": {
+      "package": "com.lunasnap.app",
       "adaptiveIcon": {
         "backgroundColor": "#091B42",
         "foregroundImage": "./assets/logo1_nobg.png"
@@ -22,7 +24,16 @@
     },
     "plugins": [
       "expo-font",
-      "expo-web-browser"
-    ]
+      "expo-web-browser",
+      "expo-audio",
+      "expo-video",
+      "expo-asset"
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "2866136e-8dd9-4f41-bb06-b2973b72e6f7"
+      }
+    },
+    "owner": "amtluan"
   }
 }

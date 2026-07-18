@@ -7,6 +7,13 @@ import CameraScreen from '../screens/CameraScreen';
 import FeedScreen from '../screens/FeedScreen';
 import ProfileScreen from '../screens/ProfileScreen';
 import FriendsScreen from '../screens/FriendsScreen';
+import MessagesScreen from '../screens/MessagesScreen';
+import ChatScreen from '../screens/ChatScreen';
+import SettingsScreen from '../screens/SettingsScreen';
+import PrivacyScreen from '../screens/PrivacyScreen';
+import HelpScreen from '../screens/HelpScreen';
+import BlockedUsersScreen from '../screens/BlockedUsersScreen';
+import AdminTemporaryAccessScreen from '../screens/AdminTemporaryAccessScreen';
 
 const Tab = createBottomTabNavigator();
 
@@ -46,6 +53,34 @@ export default function MainTabs({ session }: { session: Session | null }) {
       <Tab.Screen 
         name="Friends" 
         component={FriendsScreen}
+      />
+      <Tab.Screen 
+        name="Messages" 
+        component={MessagesScreen}
+      />
+      <Tab.Screen 
+        name="Chat" 
+        component={ChatScreen}
+      />
+      <Tab.Screen 
+        name="Settings" 
+        component={SettingsScreen}
+      />
+      <Tab.Screen 
+        name="Privacy" 
+        component={PrivacyScreen}
+      />
+      <Tab.Screen 
+        name="Help" 
+        component={HelpScreen}
+      />
+      <Tab.Screen 
+        name="BlockedUsers" 
+        component={BlockedUsersScreen}
+      />
+      <Tab.Screen
+        name="AdminTemporaryAccess"
+        component={AdminTemporaryAccessScreen}
       />
     </Tab.Navigator>
   );

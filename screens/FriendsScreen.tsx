@@ -1,24 +1,52 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, SafeAreaView, TextInput, FlatList, ActivityIndicator, Alert } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, TextInput, FlatList, ActivityIndicator, Alert, DeviceEventEmitter } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { supabase } from '../lib/supabase';
-import { ArrowLeft, UserPlus, Check, X, Search, User } from 'lucide-react-native';
+import { ArrowLeft, UserPlus, UserMinus, Check, X, Search, User } from 'lucide-react-native';
 import { StatusBar } from 'expo-status-bar';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useIsFocused } from '@react-navigation/native';
 import { Image } from 'expo-image';
+import Toast from 'react-native-toast-message';
 
 export default function FriendsScreen() {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<any[]>([]);
   const [pendingRequests, setPendingRequests] = useState<any[]>([]);
+  const [sentRequests, setSentRequests] = useState<any[]>([]);
   const [friends, setFriends] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [currentUser, setCurrentUser] = useState<any>(null);
   
   const navigation = useNavigation<any>();
 
+  const isFocused = useIsFocused();
+
   useEffect(() => {
     fetchData();
   }, []);
+
+  useEffect(() => {
+    if (isFocused) {
+      supabase.auth.getSession().then(async ({ data: { session } }) => {
+        if (session) {
+          const { data: myProfile } = await supabase.from('profiles').select('app_background').eq('id', session.user.id).single();
+          DeviceEventEmitter.emit('updateAppBackground', myProfile?.app_background || null);
+        }
+      });
+    }
+  }, [isFocused]);
+
+  useEffect(() => {
+    const delayDebounceFn = setTimeout(() => {
+      if (searchQuery.trim()) {
+        searchUsers();
+      } else {
+        setSearchResults([]);
+      }
+    }, 500);
+
+    return () => clearTimeout(delayDebounceFn);
+  }, [searchQuery]);
 
   async function fetchData() {
     const { data: { session } } = await supabase.auth.getSession();
@@ -26,6 +54,7 @@ export default function FriendsScreen() {
     setCurrentUser(session.user);
     fetchFriends(session.user.id);
     fetchPendingRequests(session.user.id);
+    fetchSentRequests(session.user.id);
   }
 
   async function fetchFriends(userId: string) {
@@ -70,6 +99,21 @@ export default function FriendsScreen() {
     }
   }
 
+  async function fetchSentRequests(userId: string) {
+    try {
+      const { data, error } = await supabase
+        .from('friendships')
+        .select('id, receiver_id')
+        .eq('requester_id', userId)
+        .eq('status', 'pending');
+
+      if (error) throw error;
+      setSentRequests(data || []);
+    } catch (e) {
+      console.log('Error fetching sent requests:', e);
+    }
+  }
+
   async function searchUsers() {
     if (!searchQuery.trim() || !currentUser) return;
     setLoading(true);
@@ -101,16 +145,19 @@ export default function FriendsScreen() {
         });
         
       if (error) {
+        console.log('Error inserting friendship:', error);
         if (error.code === '23505') {
-          Alert.alert('Lỗi', 'Bạn đã gửi lời mời hoặc đã kết bạn với người này rồi.');
+          Toast.show({ type: 'error', text1: 'Đã gửi lời mời hoặc đã là bạn bè.' });
         } else {
-          Alert.alert('Lỗi', 'Không thể gửi lời mời.');
+          Toast.show({ type: 'error', text1: `Lỗi: ${error.message}` });
         }
       } else {
-        Alert.alert('Thành công', 'Đã gửi lời mời kết bạn!');
+        Toast.show({ type: 'success', text1: 'Đã gửi lời mời kết bạn!' });
+        fetchData();
       }
-    } catch (e) {
-      console.log(e);
+    } catch (e: any) {
+      console.log('Exception in sendFriendRequest:', e);
+      Toast.show({ type: 'error', text1: `Lỗi hệ thống: ${e.message}` });
     }
   }
 
@@ -123,42 +170,120 @@ export default function FriendsScreen() {
         
       if (error) throw error;
       fetchData();
+      Toast.show({ type: 'success', text1: action === 'accepted' ? 'Đã chấp nhận kết bạn!' : 'Đã từ chối kết bạn.' });
     } catch (e) {
-      Alert.alert('Lỗi', 'Không thể thao tác.');
+      Toast.show({ type: 'error', text1: 'Không thể thao tác.' });
     }
   }
 
-  const renderUserItem = ({ item, isSearch = false, isRequest = false }: any) => (
-    <View style={styles.userItem}>
-      <View style={styles.userInfo}>
-        {item.avatar_url || (item.requester && item.requester.avatar_url) ? (
-          <Image source={{ uri: isRequest ? item.requester.avatar_url : item.avatar_url }} style={styles.avatar} contentFit="cover" />
-        ) : (
-          <View style={[styles.avatar, { justifyContent: 'center', alignItems: 'center', backgroundColor: '#333' }]}>
-            <User color="white" size={24} />
+  function confirmCancelRequest(receiverId: string) {
+    Alert.alert(
+      'Hủy lời mời',
+      'Bạn có chắc chắn muốn hủy lời mời kết bạn này?',
+      [
+        { text: 'Không', style: 'cancel' },
+        { text: 'Có', onPress: () => cancelFriendRequest(receiverId), style: 'destructive' }
+      ]
+    );
+  }
+
+  async function cancelFriendRequest(receiverId: string) {
+    try {
+      const { error } = await supabase
+        .from('friendships')
+        .delete()
+        .eq('requester_id', currentUser.id)
+        .eq('receiver_id', receiverId)
+        .eq('status', 'pending');
+        
+      if (error) throw error;
+      Toast.show({ type: 'success', text1: 'Đã hủy lời mời kết bạn.' });
+      fetchData();
+    } catch (e: any) {
+      Toast.show({ type: 'error', text1: 'Không thể hủy lời mời.' });
+    }
+  }
+
+  const confirmUnfriend = (friendId: string) => {
+    Alert.alert(
+      'Xóa bạn bè', 
+      'Bạn có chắc chắn muốn hủy kết bạn với người này không?',
+      [
+        { text: 'Không', style: 'cancel' },
+        { text: 'Hủy kết bạn', style: 'destructive', onPress: () => handleUnfriend(friendId) }
+      ]
+    );
+  };
+
+  const handleUnfriend = async (friendId: string) => {
+    if (!currentUser) return;
+    try {
+      const { error } = await supabase
+        .from('friendships')
+        .delete()
+        .or(`and(requester_id.eq.${currentUser.id},receiver_id.eq.${friendId}),and(requester_id.eq.${friendId},receiver_id.eq.${currentUser.id})`);
+        
+      if (error) throw error;
+      Toast.show({ type: 'success', text1: 'Đã hủy kết bạn.' });
+      fetchData();
+    } catch (e: any) {
+      Toast.show({ type: 'error', text1: 'Không thể hủy kết bạn.' });
+    }
+  };
+
+  const renderUserItem = ({ item, isSearch = false, isRequest = false }: any) => {
+    const isSent = sentRequests.find(req => req.receiver_id === item.id);
+    const isFriend = friends.find(f => f.id === item.id);
+    const isPendingMe = pendingRequests.find(req => req.requester && req.requester.id === item.id);
+
+    return (
+      <View style={styles.userItem}>
+        <View style={styles.userInfo}>
+          {item.avatar_url || (item.requester && item.requester.avatar_url) ? (
+            <Image source={{ uri: isRequest ? item.requester.avatar_url : item.avatar_url }} style={styles.avatar} contentFit="cover" />
+          ) : (
+            <View style={[styles.avatar, { justifyContent: 'center', alignItems: 'center', backgroundColor: '#333' }]}>
+              <User color="white" size={24} />
+            </View>
+          )}
+          <Text style={styles.username}>{isRequest ? item.requester.username : item.username}</Text>
+        </View>
+        
+        {isSearch && (
+          isFriend ? (
+            <Text style={{color: '#888'}}>Bạn bè</Text>
+          ) : isPendingMe ? (
+            <Text style={{color: '#888'}}>Đã gửi bạn</Text>
+          ) : isSent ? (
+            <TouchableOpacity style={styles.actionBtn} onPress={() => confirmCancelRequest(item.id)}>
+              <UserMinus color="black" size={20} />
+            </TouchableOpacity>
+          ) : (
+            <TouchableOpacity style={styles.actionBtn} onPress={() => sendFriendRequest(item.id)}>
+              <UserPlus color="black" size={20} />
+            </TouchableOpacity>
+          )
+        )}
+        
+        {isRequest && (
+          <View style={{ flexDirection: 'row', gap: 10 }}>
+            <TouchableOpacity style={[styles.actionBtn, { backgroundColor: '#EFE8DD' }]} onPress={() => handleRequest(item.id, 'accepted')}>
+              <Check color="black" size={20} />
+            </TouchableOpacity>
+            <TouchableOpacity style={[styles.actionBtn, { backgroundColor: '#333' }]} onPress={() => handleRequest(item.id, 'declined')}>
+              <X color="white" size={20} />
+            </TouchableOpacity>
           </View>
         )}
-        <Text style={styles.username}>{isRequest ? item.requester.username : item.username}</Text>
+        
+        {!isSearch && !isRequest && (
+          <TouchableOpacity style={[styles.actionBtn, { backgroundColor: 'transparent', borderWidth: 1, borderColor: '#555' }]} onPress={() => confirmUnfriend(item.id)}>
+            <UserMinus color="#888" size={16} />
+          </TouchableOpacity>
+        )}
       </View>
-      
-      {isSearch && (
-        <TouchableOpacity style={styles.actionBtn} onPress={() => sendFriendRequest(item.id)}>
-          <UserPlus color="black" size={20} />
-        </TouchableOpacity>
-      )}
-      
-      {isRequest && (
-        <View style={{ flexDirection: 'row', gap: 10 }}>
-          <TouchableOpacity style={[styles.actionBtn, { backgroundColor: '#EFE8DD' }]} onPress={() => handleRequest(item.id, 'accepted')}>
-            <Check color="black" size={20} />
-          </TouchableOpacity>
-          <TouchableOpacity style={[styles.actionBtn, { backgroundColor: '#333' }]} onPress={() => handleRequest(item.id, 'declined')}>
-            <X color="white" size={20} />
-          </TouchableOpacity>
-        </View>
-      )}
-    </View>
-  );
+    );
+  };
 
   return (
     <SafeAreaView style={styles.container}>
@@ -234,7 +359,7 @@ export default function FriendsScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#091B42' },
+  container: { flex: 1, backgroundColor: 'transparent' },
   header: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     paddingHorizontal: 20, paddingTop: 20, paddingBottom: 15,
